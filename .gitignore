@@ -1,0 +1,45 @@
+# Python/cache
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local environments
+.venv/
+venv/
+env/
+conda-meta/
+
+# Large model checkpoints and downloaded weights
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.onnx
+/Wan2.1-I2V-14B-720P/
+/2-mv_gen/Wan2.1-I2V-14B-720P/
+/2-mv_gen/checkpoints/
+/ckpt/*
+!/ckpt/put mv-rgb and mv-normal files here.txt
+
+# Local datasets and generated multi-view outputs
+/data/
+/motion/
+/outputs*/
+/2-mv_gen/data/
+/2-mv_gen/outputs*/
+/2-mv_gen/models_out*/
+/2-mv_gen/lightning_logs/
+
+# 3D Gaussian Splatting outputs
+/3-gs_recon/output/
+/3-gs_recon/outputs*/
+/3-gs_recon/data/*/images/
+/3-gs_recon/data/*/masks/
+/3-gs_recon/data/*/depths/
+*.ply
+
+# Animation/LHM local assets and outputs
+/4-animation/data/
+/4-animation/outputs*/
+/4-animation/tmp/
