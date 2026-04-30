@@ -149,57 +149,49 @@ class TextVideoDataset_onestage1(torch.utils.data.Dataset):
         self.typeb = typeb
         self.caption = caption
         
-        # data_list = ['UBC_Fashion', 'self_collected_videos_pose', 'TikTok']
-        data_list = ['self_collected_videos_pose']
         self.sample_fps = frame_interval
         self.max_frames = max_num_frames
         self.misc_size = [height, width]
         self.video_list = []
+        self.use_pose = True
+        dataset_roots = [p.strip() for p in str(base_path).split(",") if p.strip()]
+        if not dataset_roots:
+            raise ValueError("dataset_path is empty. Pass one or more dataset roots via --dataset_path.")
 
-        
-        if 'TikTok' in data_list:
-            
-            self.pose_dir = "./data/example_dataset/TikTok/"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length: ", len(file_list))
-            # 
-            for iii_index in file_list:
-                    self.video_list.append(self.pose_dir+iii_index)
+        required_files = [f"{self.typea}.pkl", f"{self.typeb}.pkl"]
+        skipped_entries = 0
 
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
-        
-        if 'UBC_Fashion' in data_list:
-            self.pose_dir = "path_of_UBC_Fashion"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length (UBC_Fashion): ", len(file_list))
-            
-            for iii_index in file_list:
-            #     
-                    self.video_list.append(self.pose_dir + iii_index)
+        for dataset_root in dataset_roots:
+            if not os.path.isdir(dataset_root):
+                raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
-        if 'self_collected_videos_pose' in data_list:
-            
-            self.pose_dir = "/home/jovyan/data2/yangjie/human4dit-3d-81-orth-pkl-2/"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length (self_collected_videos_pose): ", len(file_list))
-            # 
-            for iii_index in file_list:
-                
-                self.video_list.append(self.pose_dir+iii_index)
-            
-            self.pose_dir = "/home/jovyan/data3/yangjie/2k2k-3d-81-orth-pkl/"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length (self_collected_videos_pose): ", len(file_list))
-            # 
-            for iii_index in file_list:
-                
-                self.video_list.append(self.pose_dir+iii_index)
+            print(f"!!! scanning dataset root: {dataset_root}")
 
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
+            # Support both:
+            # 1) root/subject_x/{typea}.pkl,{typeb}.pkl
+            # 2) root/{typea}.pkl,{typeb}.pkl
+            direct_files_present = all(os.path.exists(os.path.join(dataset_root, name)) for name in required_files)
+            if direct_files_present:
+                self.video_list.append(dataset_root)
+
+            for entry in sorted(os.listdir(dataset_root)):
+                entry_path = os.path.join(dataset_root, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                if all(os.path.exists(os.path.join(entry_path, name)) for name in required_files):
+                    self.video_list.append(entry_path)
+                else:
+                    skipped_entries += 1
+
+        if not self.video_list:
+            raise RuntimeError(
+                f"No valid training samples found under {dataset_roots}. "
+                f"Each sample directory must contain {required_files}."
+            )
+
+        print(f"!!! dataset length: {len(self.video_list)} valid samples")
+        if skipped_entries:
+            print(f"!!! skipped {skipped_entries} directories without required PKL files")
 
         random.shuffle(self.video_list)
             
@@ -1119,4 +1111,3 @@ if __name__ == '__main__':
     elif args.task == "train":
         # support VAE and DiT in a single stage
         train_onestage(args)
-
