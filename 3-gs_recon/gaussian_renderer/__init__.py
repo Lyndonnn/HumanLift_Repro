@@ -128,13 +128,16 @@ def render1(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     rendered_image = rendered_image.clamp(0, 1)
+    if radii.ndim > 1:
+        radii = radii.amax(dim=-1)
+
     out = {
         "render": rendered_image,
         "viewspace_points": screenspace_points,
-        "visibility_filter" : (radii > 0).nonzero(),
+        "visibility_filter": radii > 0,
         "radii": radii,
-        "depth" : depth_image
-        }
+        "depth": depth_image,
+    }
     
     return out
 
@@ -203,7 +206,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # [1, H, W, 3] -> [3, H, W]
     rendered_image = colors[0].permute(2, 0, 1)
-    radii = info["radii"].squeeze(0) # [N,]
+    radii = info["radii"].squeeze(0)
+    if radii.ndim > 1:
+        radii = radii.amax(dim=-1)
     try:
         info["means2d"].retain_grad() # [1, N, 2]
     except:
@@ -216,10 +221,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     out = {
         "render": rendered_image,
         "viewspace_points": info["means2d"],
-        "visibility_filter" : (radii > 0).nonzero(),
+        "visibility_filter": radii > 0,
         "radii": radii,
-        "depth" : depths
-        }
+        "depth": depths,
+    }
     
     return out
-
