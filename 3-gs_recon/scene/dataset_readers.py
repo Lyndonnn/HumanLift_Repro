@@ -24,28 +24,74 @@ from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 
 from natsort import natsorted
-import torch
-from pytorch3d.renderer import (
-    FoVOrthographicCameras,
-    look_at_view_transform,
-)
+
+try:
+    import torch
+    from pytorch3d.renderer import (
+        FoVOrthographicCameras,
+        look_at_view_transform,
+    )
+    _HAS_PYTORCH3D = True
+except Exception:
+    torch = None
+    FoVOrthographicCameras = None
+    look_at_view_transform = None
+    _HAS_PYTORCH3D = False
 
 def set_cameras(azim_list, elev_list):
+    if _HAS_PYTORCH3D:
+        R, T = look_at_view_transform(
+            dist=1.0,
+            azim=azim_list,
+            elev=elev_list,
+        )
 
-    R, T = look_at_view_transform(
-        dist=1.0,
-        azim=azim_list,
-        elev=elev_list,
-    )
-    
-    cameras = FoVOrthographicCameras(
-        R=R,
-        T=T,
-    )
+        cameras = FoVOrthographicCameras(
+            R=R,
+            T=T,
+        )
 
-    K = torch.transpose(cameras.get_projection_transform().get_matrix(), 1, 2)
+        K = torch.transpose(cameras.get_projection_transform().get_matrix(), 1, 2)
+        return [r.numpy() for r in R], [t.numpy() for t in T], [k.numpy() for k in K]
 
-    return [r.numpy() for r in R], [t.numpy() for t in T], [k.numpy() for k in K]
+    def normalize(vec):
+        norm = np.linalg.norm(vec)
+        return vec / (norm + 1e-8)
+
+    dist = 1.0
+    Rs, Ts, Ks = [], [], []
+    for azim, elev in zip(azim_list, elev_list):
+        az = np.deg2rad(float(azim))
+        el = np.deg2rad(float(elev))
+
+        cam_pos = np.array([
+            dist * np.cos(el) * np.sin(az),
+            dist * np.sin(el),
+            dist * np.cos(el) * np.cos(az),
+        ], dtype=np.float32)
+        target = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        up = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
+        z_axis = normalize(target - cam_pos)
+        x_axis = normalize(np.cross(z_axis, up))
+        y_axis = normalize(np.cross(x_axis, z_axis))
+
+        # world-to-camera rotation/translation
+        R_c2w = np.stack([x_axis, y_axis, -z_axis], axis=1)
+        R_w2c = R_c2w.T.astype(np.float32)
+        T_w2c = (-R_w2c @ cam_pos).astype(np.float32)
+
+        # Match the existing downstream convention where K[0,0]/K[1,1]
+        # are consumed as synthetic FoV-like scale terms.
+        K = np.eye(4, dtype=np.float32)
+        K[0, 0] = 1.0
+        K[1, 1] = 1.0
+
+        Rs.append(R_w2c)
+        Ts.append(T_w2c)
+        Ks.append(K)
+
+    return Rs, Ts, Ks
 
 
 class CameraInfo(NamedTuple):
@@ -318,7 +364,10 @@ def readCameras_orth(path, transformsfile, depths_folder, white_background, is_t
         # print(azim, elev)
     R, T, K = set_cameras(azim_list, elev_list) # w2c
 
-    filelist = natsorted(os.listdir(path + "/images/"))
+    image_dir = os.path.join(path, "images")
+    filelist = [name for name in natsorted(os.listdir(image_dir)) if name.lower().endswith((".png", ".jpg", ".jpeg"))]
+    if len(filelist) != num_views:
+        raise RuntimeError(f"Expected {num_views} images in {image_dir}, found {len(filelist)}")
     bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
     for i in range(num_views):
         R_i = R[i]

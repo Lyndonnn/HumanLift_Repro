@@ -18,7 +18,12 @@ import json
 from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import RGB2SH
-from simple_knn._C import distCUDA2
+try:
+    from simple_knn._C import distCUDA2
+    _HAS_SIMPLE_KNN = True
+except Exception:
+    distCUDA2 = None
+    _HAS_SIMPLE_KNN = False
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 
@@ -110,20 +115,36 @@ class GaussianModel:
     @property
     def get_xyz(self):
         return self._xyz
+
+    def _feature_layout(self, tensor):
+        if tensor.ndim != 3:
+            return tensor
+        # Internal storage should be [N, coeffs, 3]. Some environments
+        # restore or concatenate these tensors as [N, 3, coeffs].
+        if tensor.shape[-1] == 3:
+            return tensor
+        if tensor.shape[1] == 3:
+            return tensor.transpose(1, 2).contiguous()
+        return tensor
     
     @property
     def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
+        features_dc = self._feature_layout(self._features_dc)
+        features_rest = self._feature_layout(self._features_rest)
+        if features_dc.shape[-1] != features_rest.shape[-1]:
+            raise RuntimeError(
+                f"Feature shape mismatch after normalization: "
+                f"dc={tuple(features_dc.shape)}, rest={tuple(features_rest.shape)}"
+            )
         return torch.cat((features_dc, features_rest), dim=1)
     
     @property
     def get_features_dc(self):
-        return self._features_dc
+        return self._feature_layout(self._features_dc)
     
     @property
     def get_features_rest(self):
-        return self._features_rest
+        return self._feature_layout(self._features_rest)
     
     @property
     def get_opacity(self):
@@ -156,7 +177,19 @@ class GaussianModel:
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
-        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        if _HAS_SIMPLE_KNN:
+            dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        else:
+            points_np = np.asarray(pcd.points)
+            bbox_extent = np.maximum(points_np.max(axis=0) - points_np.min(axis=0), 1e-3)
+            spacing = float((np.prod(bbox_extent) / max(points_np.shape[0], 1)) ** (1.0 / 3.0))
+            dist2 = torch.full(
+                (fused_point_cloud.shape[0],),
+                max(spacing * spacing, 1e-4),
+                dtype=torch.float32,
+                device="cuda",
+            )
+            print("simple_knn not available, using bbox-based scale initialization")
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
