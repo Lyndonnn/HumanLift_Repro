@@ -119,14 +119,25 @@ class GaussianModel:
     def _feature_layout(self, tensor, coeffs):
         if tensor.ndim != 3:
             return tensor
-        n_points = tensor.shape[0]
-        expected = n_points * coeffs * 3
-        if tensor.numel() != expected:
+        n_points = int(self._xyz.shape[0]) if self._xyz.ndim > 0 else int(tensor.shape[0])
+        point_axes = [axis for axis, size in enumerate(tensor.shape) if size == n_points]
+        if not point_axes:
             raise RuntimeError(
-                f"Unexpected feature tensor size: shape={tuple(tensor.shape)}, "
-                f"coeffs={coeffs}, expected_numel={expected}, got={tensor.numel()}"
+                f"Could not identify point axis for feature tensor: "
+                f"shape={tuple(tensor.shape)}, expected_points={n_points}, coeffs={coeffs}"
             )
-        return tensor.reshape(n_points, coeffs, 3).contiguous()
+        if point_axes[0] != 0:
+            tensor = tensor.movedim(point_axes[0], 0).contiguous()
+
+        flat = tensor.reshape(n_points, -1)
+        expected_per_point = coeffs * 3
+        if flat.shape[1] != expected_per_point:
+            raise RuntimeError(
+                f"Unexpected feature tensor layout after point-axis normalization: "
+                f"shape={tuple(tensor.shape)}, flat_shape={tuple(flat.shape)}, "
+                f"coeffs={coeffs}, expected_per_point={expected_per_point}"
+            )
+        return flat.reshape(n_points, coeffs, 3).contiguous()
     
     @property
     def get_features(self):
