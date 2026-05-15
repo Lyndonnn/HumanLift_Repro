@@ -119,31 +119,41 @@ class GaussianModel:
     def _feature_layout(self, tensor, coeffs):
         if tensor.ndim != 3:
             return tensor
-        n_points = int(self._xyz.shape[0]) if self._xyz.ndim > 0 else int(tensor.shape[0])
-        point_axes = [axis for axis, size in enumerate(tensor.shape) if size == n_points]
-        if not point_axes:
+
+        channel_axes = [axis for axis, size in enumerate(tensor.shape) if size == 3]
+        coeff_axes = [axis for axis, size in enumerate(tensor.shape) if size == coeffs]
+
+        if len(channel_axes) != 1 or len(coeff_axes) != 1:
+            raise RuntimeError(
+                f"Could not identify feature axes: "
+                f"shape={tuple(tensor.shape)}, coeffs={coeffs}, "
+                f"channel_axes={channel_axes}, coeff_axes={coeff_axes}"
+            )
+
+        channel_axis = channel_axes[0]
+        coeff_axis = coeff_axes[0]
+        point_axes = [axis for axis in range(3) if axis not in {channel_axis, coeff_axis}]
+        if len(point_axes) != 1:
             raise RuntimeError(
                 f"Could not identify point axis for feature tensor: "
-                f"shape={tuple(tensor.shape)}, expected_points={n_points}, coeffs={coeffs}"
+                f"shape={tuple(tensor.shape)}, coeffs={coeffs}, "
+                f"channel_axis={channel_axis}, coeff_axis={coeff_axis}, point_axes={point_axes}"
             )
-        if point_axes[0] != 0:
-            tensor = tensor.movedim(point_axes[0], 0).contiguous()
+        point_axis = point_axes[0]
 
-        flat = tensor.reshape(n_points, -1)
-        expected_per_point = coeffs * 3
-        if flat.shape[1] != expected_per_point:
+        tensor = tensor.movedim((point_axis, coeff_axis, channel_axis), (0, 1, 2)).contiguous()
+        if tensor.shape[1] != coeffs or tensor.shape[2] != 3:
             raise RuntimeError(
-                f"Unexpected feature tensor layout after point-axis normalization: "
-                f"shape={tuple(tensor.shape)}, flat_shape={tuple(flat.shape)}, "
-                f"coeffs={coeffs}, expected_per_point={expected_per_point}"
+                f"Unexpected feature tensor layout after normalization: "
+                f"shape={tuple(tensor.shape)}, coeffs={coeffs}"
             )
-        return flat.reshape(n_points, coeffs, 3).contiguous()
+        return tensor
     
     @property
     def get_features(self):
         features_dc = self._feature_layout(self._features_dc, 1)
         features_rest = self._feature_layout(self._features_rest, (self.max_sh_degree + 1) ** 2 - 1)
-        if features_dc.shape[-1] != features_rest.shape[-1]:
+        if features_dc.shape[0] != features_rest.shape[0] or features_dc.shape[-1] != features_rest.shape[-1]:
             raise RuntimeError(
                 f"Feature shape mismatch after normalization: "
                 f"dc={tuple(features_dc.shape)}, rest={tuple(features_rest.shape)}"
