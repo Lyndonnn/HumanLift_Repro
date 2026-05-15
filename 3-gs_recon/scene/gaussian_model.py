@@ -116,21 +116,22 @@ class GaussianModel:
     def get_xyz(self):
         return self._xyz
 
-    def _feature_layout(self, tensor):
+    def _feature_layout(self, tensor, coeffs):
         if tensor.ndim != 3:
             return tensor
-        # Internal storage should be [N, coeffs, 3]. Some environments
-        # restore or concatenate these tensors as [N, 3, coeffs].
-        if tensor.shape[-1] == 3:
-            return tensor
-        if tensor.shape[1] == 3:
-            return tensor.transpose(1, 2).contiguous()
-        return tensor
+        n_points = tensor.shape[0]
+        expected = n_points * coeffs * 3
+        if tensor.numel() != expected:
+            raise RuntimeError(
+                f"Unexpected feature tensor size: shape={tuple(tensor.shape)}, "
+                f"coeffs={coeffs}, expected_numel={expected}, got={tensor.numel()}"
+            )
+        return tensor.reshape(n_points, coeffs, 3).contiguous()
     
     @property
     def get_features(self):
-        features_dc = self._feature_layout(self._features_dc)
-        features_rest = self._feature_layout(self._features_rest)
+        features_dc = self._feature_layout(self._features_dc, 1)
+        features_rest = self._feature_layout(self._features_rest, (self.max_sh_degree + 1) ** 2 - 1)
         if features_dc.shape[-1] != features_rest.shape[-1]:
             raise RuntimeError(
                 f"Feature shape mismatch after normalization: "
@@ -140,11 +141,11 @@ class GaussianModel:
     
     @property
     def get_features_dc(self):
-        return self._feature_layout(self._features_dc)
+        return self._feature_layout(self._features_dc, 1)
     
     @property
     def get_features_rest(self):
-        return self._feature_layout(self._features_rest)
+        return self._feature_layout(self._features_rest, (self.max_sh_degree + 1) ** 2 - 1)
     
     @property
     def get_opacity(self):
@@ -274,8 +275,8 @@ class GaussianModel:
 
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
-        f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_dc = self.get_features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self.get_features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
