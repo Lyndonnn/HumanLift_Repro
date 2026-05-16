@@ -401,21 +401,21 @@ class GaussianModel:
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
-    def prune_points(self, mask):
+    def prune_points(self, mask, min_keep=0):
         valid_points_mask = ~mask
         total_points = int(mask.numel())
         if total_points == 0:
             raise RuntimeError("prune_points called with zero Gaussians")
 
         num_valid = int(valid_points_mask.sum().item()) if valid_points_mask.numel() > 0 else 0
-        min_keep = min(4096, total_points)
-        if num_valid < min_keep:
-            keep_idx = torch.topk(self.get_opacity.view(-1), k=min_keep, largest=True).indices
+        target_keep = min(max(int(min_keep), 0), total_points)
+        if num_valid < target_keep:
+            keep_idx = torch.topk(self.get_opacity.view(-1), k=target_keep, largest=True).indices
             valid_points_mask = torch.zeros_like(valid_points_mask, dtype=torch.bool)
             valid_points_mask[keep_idx] = True
             print(
                 f"prune_points would keep only {num_valid} / {total_points} Gaussians; "
-                f"keeping top-{min_keep} by opacity"
+                f"keeping top-{target_keep} by opacity"
             )
 
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
@@ -519,7 +519,7 @@ class GaussianModel:
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
 
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
+    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii, min_keep=0, apply_opacity_prune=True):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
@@ -527,12 +527,14 @@ class GaussianModel:
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
-        prune_mask = (self.get_opacity < min_opacity).squeeze()
+        prune_mask = torch.zeros_like(self.get_opacity.squeeze(), dtype=torch.bool)
+        if apply_opacity_prune:
+            prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
-        self.prune_points(prune_mask)
+        self.prune_points(prune_mask, min_keep=min_keep)
         tmp_radii = self.tmp_radii
         self.tmp_radii = None
 

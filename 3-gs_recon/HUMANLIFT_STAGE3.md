@@ -42,7 +42,32 @@ python train.py \
 
 If this fails, do not start the long run.
 
-## 3. Full experiment
+## 3. HumanLift densification smoke test
+
+The default 3DGS pruning settings are too aggressive for HumanLift stage-2 synthetic views.
+Before running the full experiment, verify densification with a HumanLift-specific smoke test:
+
+```bash
+cd 3-gs_recon
+python train.py \
+  -s data/sample_stage3 \
+  -m output/sample_stage3_smoke_densify \
+  --iterations 2500 \
+  --test_iterations 2000 2500 \
+  --save_iterations 1600 1700 2500 \
+  --checkpoint_iterations 1600 1700 2500 \
+  --prune_min_opacity 0.0001 \
+  --opacity_prune_from_iter 3000 \
+  --min_keep_gaussians 20000 \
+  --disable_viewer
+```
+
+Recommended interpretation:
+
+- if point count still collapses before `2500`, do not start the full run
+- if this smoke test finishes and renders start to form a body instead of a blob, proceed to the full run
+
+## 4. Full experiment
 
 Once the smoke test is stable, run a save-point before and after the first densification window.
 
@@ -64,7 +89,7 @@ Recommended behavior:
 - save at `5000` so you can compare early densification behavior
 - if training crashes after densification starts, resume from `chkpnt2000.pth` and debug from there
 
-## 4. Resume from checkpoint
+## 5. Resume from checkpoint
 
 ```bash
 cd 3-gs_recon
@@ -79,7 +104,7 @@ python train.py \
   --disable_viewer
 ```
 
-## 5. Render checkpoints
+## 6. Render checkpoints
 
 ```bash
 cd 3-gs_recon
@@ -95,7 +120,7 @@ Rendered images are written under:
 - `output/sample_stage3_full/train/ours_<iter>/renders`
 - `output/sample_stage3_full/train/ours_<iter>/gt`
 
-## 6. Current implementation notes
+## 7. Current implementation notes
 
 This repo includes HumanLift-specific stage-3 compatibility patches:
 
