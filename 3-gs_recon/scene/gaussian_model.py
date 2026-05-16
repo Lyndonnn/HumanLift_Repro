@@ -403,19 +403,19 @@ class GaussianModel:
 
     def prune_points(self, mask):
         valid_points_mask = ~mask
-        num_valid = int(valid_points_mask.sum().item()) if valid_points_mask.numel() > 0 else 0
-        if num_valid == 0:
-            total_points = int(mask.numel())
-            if total_points == 0:
-                raise RuntimeError("prune_points called with zero Gaussians")
+        total_points = int(mask.numel())
+        if total_points == 0:
+            raise RuntimeError("prune_points called with zero Gaussians")
 
-            keep_count = min(1024, total_points)
-            keep_idx = torch.topk(self.get_opacity.view(-1), k=keep_count, largest=True).indices
+        num_valid = int(valid_points_mask.sum().item()) if valid_points_mask.numel() > 0 else 0
+        min_keep = min(4096, total_points)
+        if num_valid < min_keep:
+            keep_idx = torch.topk(self.get_opacity.view(-1), k=min_keep, largest=True).indices
             valid_points_mask = torch.zeros_like(valid_points_mask, dtype=torch.bool)
             valid_points_mask[keep_idx] = True
             print(
-                f"prune_points would remove all {total_points} Gaussians; "
-                f"keeping top-{keep_count} by opacity"
+                f"prune_points would keep only {num_valid} / {total_points} Gaussians; "
+                f"keeping top-{min_keep} by opacity"
             )
 
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
