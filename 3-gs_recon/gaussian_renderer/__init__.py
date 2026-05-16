@@ -156,12 +156,14 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     """
     orthographic = True
 
-    # # Set up rasterization configuration
-    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
-    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
-    # tanfovx = viewpoint_camera.FoVx
-    # tanfovy = viewpoint_camera.FoVy
-    # Set up rasterization configuration
+    if orthographic:
+        tanfovx, tanfovy, _ = viewpoint_camera.get_full_proj_transform(orthographic=True)
+        tanfovx = max(abs(float(tanfovx)), 1e-6)
+        tanfovy = max(abs(float(tanfovy)), 1e-6)
+    else:
+        tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+        tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+
     focal_length_x = viewpoint_camera.image_width / (2 * tanfovx)
     focal_length_y = viewpoint_camera.image_height / (2 * tanfovy)
     K = torch.tensor(
